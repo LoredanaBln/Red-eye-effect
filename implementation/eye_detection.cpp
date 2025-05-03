@@ -3,6 +3,8 @@
 using namespace std;
 using namespace cv;
 
+#define PI 3.14
+
 bool isInside(int x, int y, int rows, int cols)
 {
     return x >= 0 && y >= 0 && x < rows && y < cols;
@@ -246,17 +248,14 @@ bool isEdgePixel(const Mat &labelMat, int x, int y)
     int rows = labelMat.rows;
     int cols = labelMat.cols;
     int label = labelMat.at<int>(x, y);
-    for (int dx = -1; dx <= 1; dx++)
+
+    for (int k = 0; k < 8; k++)
     {
-        for (int dy = -1; dy <= 1; dy++)
+        int nx = x + dx[k];
+        int ny = y + dy[k];
+        if (!isInside(nx, ny, rows, cols) || labelMat.at<int>(nx, ny) != label)
         {
-            if (dx == 0 && dy == 0)
-                continue;
-            int nx = x + dx, ny = y + dy;
-            if (!isInside(x, y, rows, cols))
-                return true;
-            if (labelMat.at<int>(nx, ny) != label)
-                return true;
+            return true;
         }
     }
     return false;
@@ -293,7 +292,7 @@ Mat detect_circular_components(Mat binary, double circularityThreshold)
             int lbl = labels.labels.at<int>(i, j);
             if (lbl > 0 && perimeter[lbl] > 0)
             {
-                double circ = (4.0 * CV_PI * area[lbl]) / (perimeter[lbl] * perimeter[lbl]);
+                double circ = (4.0 * PI * area[lbl]) / (perimeter[lbl] * perimeter[lbl]);
                 if (circ >= circularityThreshold && area[lbl] > 50)
                 {
                     output.at<uchar>(i, j) = 255;
