@@ -5,7 +5,7 @@ using namespace cv;
 
 int main()
 {
-    Mat image = imread("E:\\AN3\\SEM2\\pi\\red_eye\\images\\red1.jpg",
+    Mat image = imread("E:\\AN3\\SEM2\\pi\\red_eye\\images\\redeyes1.jpg",
                        IMREAD_COLOR);
 
     image_channels_bgr channelsBgr = break_channels(image);
@@ -16,7 +16,7 @@ int main()
     imshow("Original Image", image);
     imshow("Red Mask", redMask);
 
-    Mat extracted = detect_circular_components(redMask, 0.4);
+    Mat extracted = detect_circular_components(redMask, 0.6);
     imshow("Circular", extracted);
 
     Mat corrected = correct_red_eye(extracted, image);
