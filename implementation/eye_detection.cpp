@@ -115,12 +115,14 @@ Mat create_red_mask(image_channels_hsv hsv_channels)
             float sat = hsv_channels.S.at<float>(i, j) * 255;
             float val = hsv_channels.V.at<float>(i, j) * 255;
 
-            if ((hue < 10 || hue > 170) && sat > 100 && val > 50)
+            if ((hue < 10 || hue > 200) && sat > 100 && val > 50)
             {
                 mask.at<uchar>(i, j) = 255;
             }
         }
     }
+    mask = erosion(mask, 1);
+    mask = dilation(mask, 1);
     return mask;
 }
 
@@ -136,10 +138,15 @@ Mat correct_red_eye(Mat mask, Mat source)
         {
             if (mask.at<uchar>(i, j) == 255)
             {
-                corrected.at<Vec3b>(i, j) = 0;
+                Vec3b &pixel = corrected.at<Vec3b>(i, j);
+                uchar green = pixel[1];
+                uchar blue = pixel[0];
+
+                pixel[2] = min(green, blue);
             }
         }
     }
+
     return corrected;
 }
 
@@ -151,7 +158,8 @@ labels_ two_pass_labeling(Mat source)
     int no_newlabels = 0;
     int new_label = 0;
 
-    vector<vector<int>> edges(1000);
+    vector<vector<int>> edges(10000);
+
     for (int i = 0; i < rows; i++)
     {
         for (int j = 0; j < cols; j++)
@@ -243,13 +251,85 @@ labels_ two_pass_labeling(Mat source)
     return {labels, new_label};
 }
 
+Mat dilation(Mat source, int no_iter)
+{
+    Mat dst = source.clone();
+    Mat aux;
+
+    int rows = source.rows;
+    int cols = source.cols;
+
+    for (int iter = 0; iter < no_iter; iter++)
+    {
+        aux = dst.clone();
+        for (int i = 0; i < rows; i++)
+        {
+            for (int j = 0; j < cols; j++)
+            {
+                if (dst.at<uchar>(i, j) == 255)
+                {
+                    for (int k = 0; k < 8; k++)
+                    {
+                        int ni = i + dx[k];
+                        int nj = j + dy[k];
+
+                        if (isInside(ni, nj, rows, cols))
+                        {
+                            aux.at<uchar>(ni, nj) = 255;
+                        }
+                    }
+                }
+            }
+        }
+        dst = aux.clone();
+    }
+
+    return dst;
+}
+
+Mat erosion(Mat source, int no_iter)
+{
+    Mat dst = source.clone();
+    Mat aux;
+
+    int rows = source.rows;
+    int cols = source.cols;
+
+    for (int iter = 0; iter < no_iter; iter++)
+    {
+        aux = dst.clone();
+        for (int i = 0; i < rows; i++)
+        {
+            for (int j = 0; j < cols; j++)
+            {
+                if (dst.at<uchar>(i, j) == 0)
+                {
+                    for (int k = 0; k < 8; k++)
+                    {
+                        int ni = i + dx[k];
+                        int nj = j + dy[k];
+
+                        if (isInside(ni, nj, rows, cols))
+                        {
+                            aux.at<uchar>(ni, nj) = 0;
+                        }
+                    }
+                }
+            }
+        }
+
+        dst = aux.clone();
+    }
+    return dst;
+}
+
 bool isEdgePixel(const Mat &labelMat, int x, int y)
 {
     int rows = labelMat.rows;
     int cols = labelMat.cols;
     int label = labelMat.at<int>(x, y);
 
-    for (int k = 0; k < 8; k++)
+    for (int k = 0; k < 4; k++)
     {
         int nx = x + dx[k];
         int ny = y + dy[k];
