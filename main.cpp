@@ -1,10 +1,10 @@
-#include <iostream>
 #include <opencv2/opencv.hpp>
 #include "implementation/eye_detection.h"
 using namespace std;
 using namespace cv;
 
-int main() {
+int main()
+{
     Mat image = imread("E:\\AN3\\SEM2\\pi\\red_eye\\images\\red1.jpg",
                        IMREAD_COLOR);
 
@@ -15,7 +15,12 @@ int main() {
 
     imshow("Original Image", image);
     imshow("Red Mask", redMask);
-    waitKey(0);
 
+    Mat extracted = detect_circular_components(redMask, 0.4);
+    imshow("Circular", extracted);
+
+    Mat corrected = correct_red_eye(extracted, image);
+    imshow("Corrected", corrected);
+    waitKey(0);
     return 0;
 }
