@@ -11,7 +11,7 @@ int main()
     image_channels_bgr channelsBgr = break_channels(image);
     image_channels_hsv channelsHsv = bgr_to_hsv(channelsBgr);
 
-    Mat redMask = create_red_mask(channelsHsv);
+    Mat redMask = create_mask(channelsHsv);
 
     imshow("Original Image", image);
     imshow("Red Mask", redMask);

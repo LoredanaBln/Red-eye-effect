@@ -5,7 +5,7 @@ using namespace cv;
 
 #define PI 3.14
 
-bool isInside(int x, int y, int rows, int cols)
+bool is_inside(int x, int y, int rows, int cols)
 {
     return x >= 0 && y >= 0 && x < rows && y < cols;
 }
@@ -103,7 +103,7 @@ image_channels_hsv bgr_to_hsv(image_channels_bgr bgr_channels)
     return hsv_channels;
 }
 
-Mat create_red_mask(image_channels_hsv hsv_channels)
+Mat create_mask(image_channels_hsv hsv_channels)
 {
     Mat mask = Mat::zeros(hsv_channels.H.size(), CV_8UC1);
 
@@ -121,8 +121,8 @@ Mat create_red_mask(image_channels_hsv hsv_channels)
             }
         }
     }
-    mask = erosion(mask, 1);
-    mask = dilation(mask, 1);
+    mask = erode(mask, 1);
+    mask = dilate(mask, 1);
     return mask;
 }
 
@@ -173,7 +173,7 @@ labels_ two_pass_labeling(Mat source)
                     int ni = i + dx[k];
                     int nj = j + dy[k];
 
-                    if (isInside(ni, nj, rows, cols))
+                    if (is_inside(ni, nj, rows, cols))
                     {
                         if (labels.at<int>(ni, nj) > 0)
                         {
@@ -251,7 +251,7 @@ labels_ two_pass_labeling(Mat source)
     return {labels, new_label};
 }
 
-Mat dilation(Mat source, int no_iter)
+Mat dilate(Mat source, int no_iter)
 {
     Mat dst = source.clone();
     Mat aux;
@@ -273,7 +273,7 @@ Mat dilation(Mat source, int no_iter)
                         int ni = i + dx[k];
                         int nj = j + dy[k];
 
-                        if (isInside(ni, nj, rows, cols))
+                        if (is_inside(ni, nj, rows, cols))
                         {
                             aux.at<uchar>(ni, nj) = 255;
                         }
@@ -287,7 +287,7 @@ Mat dilation(Mat source, int no_iter)
     return dst;
 }
 
-Mat erosion(Mat source, int no_iter)
+Mat erode(Mat source, int no_iter)
 {
     Mat dst = source.clone();
     Mat aux;
@@ -309,7 +309,7 @@ Mat erosion(Mat source, int no_iter)
                         int ni = i + dx[k];
                         int nj = j + dy[k];
 
-                        if (isInside(ni, nj, rows, cols))
+                        if (is_inside(ni, nj, rows, cols))
                         {
                             aux.at<uchar>(ni, nj) = 0;
                         }
@@ -323,7 +323,7 @@ Mat erosion(Mat source, int no_iter)
     return dst;
 }
 
-bool isEdgePixel(const Mat &labelMat, int x, int y)
+bool is_edge_pixel(const Mat &labelMat, int x, int y)
 {
     int rows = labelMat.rows;
     int cols = labelMat.cols;
@@ -333,7 +333,7 @@ bool isEdgePixel(const Mat &labelMat, int x, int y)
     {
         int nx = x + dx[k];
         int ny = y + dy[k];
-        if (!isInside(nx, ny, rows, cols) || labelMat.at<int>(nx, ny) != label)
+        if (!is_inside(nx, ny, rows, cols) || labelMat.at<int>(nx, ny) != label)
         {
             return true;
         }
@@ -356,7 +356,7 @@ Mat detect_circular_components(Mat binary, double circularityThreshold)
             if (lbl > 0)
             {
                 area[lbl]++;
-                if (isEdgePixel(labels.labels, i, j))
+                if (is_edge_pixel(labels.labels, i, j))
                 {
                     perimeter[lbl]++;
                 }
