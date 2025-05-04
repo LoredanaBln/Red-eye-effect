@@ -302,16 +302,17 @@ Mat erode(Mat source, int no_iter)
         {
             for (int j = 0; j < cols; j++)
             {
-                if (dst.at<uchar>(i, j) == 0)
+                if (dst.at<uchar>(i, j) == 255)
                 {
                     for (int k = 0; k < 8; k++)
                     {
                         int ni = i + dx[k];
                         int nj = j + dy[k];
 
-                        if (is_inside(ni, nj, rows, cols))
+                        if (!is_inside(ni, nj, rows, cols) || dst.at<uchar>(ni, nj) == 0)
                         {
-                            aux.at<uchar>(ni, nj) = 0;
+                            aux.at<uchar>(i, j) = 0;
+                            break;
                         }
                     }
                 }
