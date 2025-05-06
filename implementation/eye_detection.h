@@ -9,31 +9,27 @@
 using namespace std;
 using namespace cv;
 
-struct image_channels_bgr
-{
-    Mat B, G, R;
-};
-
-struct image_channels_hsv
-{
-    Mat H, S, V;
-};
-
 struct labels_
 {
     Mat labels;
     int no_newlabels;
 };
 
+struct HSV
+{
+    float h;
+    float s;
+    float v;
+};
+
 const int dx[8] = {-1, -1, -1, 0, 0, 1, 1, 1};
 const int dy[8] = {-1, 0, 1, -1, 1, -1, 0, 1};
 
-image_channels_bgr break_channels(Mat source);
-image_channels_hsv bgr_to_hsv(image_channels_bgr bgr_channels);
-Mat create_mask(image_channels_hsv hsv_channels);
+Mat create_mask(Mat source);
 Mat correct_red_eye(Mat mask, Mat source);
-Mat detect_circular_components(Mat binary, double circularityThreshold);
+Mat detect_circular_components(Mat binary, Mat original, double circularityThreshold);
 Mat dilate(Mat source, int no_iter);
 Mat erode(Mat source, int no_iter);
+HSV rgb_to_hsv_pixel(float r, float g, float b);
 
 #endif // RED_EYE_EYE_DETECTION_H

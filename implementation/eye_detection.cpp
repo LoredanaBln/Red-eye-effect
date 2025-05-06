@@ -5,149 +5,215 @@ using namespace cv;
 
 #define PI 3.14
 
+#define WHITE_THRESHOLD 140
+#define OFF_WHITE_THRESHOLD 120
+#define COLOR_DIFF_THRESHOLD 30
+#define DARK_THRESHOLD 40
+
+#define SKIN_RED_MIN 0.4
+#define SKIN_RED_MAX 0.9
+#define SKIN_GREEN_MIN 0.2
+#define SKIN_GREEN_MAX 0.7
+#define SKIN_BLUE_MIN 0.1
+#define SKIN_BLUE_MAX 0.6
+#define SKIN_SATURATION_MAX 0.6
+
+#define RED_HUE_MIN 10
+#define RED_HUE_MAX 200
+#define RED_SATURATION_MIN 100
+#define RED_VALUE_MIN 50
+
 bool is_inside(int x, int y, int rows, int cols)
 {
     return x >= 0 && y >= 0 && x < rows && y < cols;
 }
 
-image_channels_bgr break_channels(Mat source)
+double calculate_ratio(int count, int total)
 {
-    int rows = source.rows;
-    int cols = source.cols;
-    Mat B = Mat(rows, cols, CV_8UC1);
-    Mat G = Mat(rows, cols, CV_8UC1);
-    Mat R = Mat(rows, cols, CV_8UC1);
-    image_channels_bgr bgr_channels;
+    return total > 0 ? (double)count / total : 0.0;
+}
 
-    for (int i = 0; i < rows; i++)
+HSV rgb_to_hsv_pixel(float r, float g, float b)
+{
+    HSV hsv;
+    float M = max(r, max(g, b));
+    float m = min(r, min(g, b));
+    float C = M - m;
+
+    hsv.v = M;
+    hsv.s = (M != 0.0) ? (C / M) : 0.0;
+
+    if (C != 0.0)
     {
-        for (int j = 0; j < cols; j++)
+        if (M == r)
+        {
+            hsv.h = 60 * (g - b) / C;
+        }
+        else if (M == g)
+        {
+            hsv.h = 120 + 60 * (b - r) / C;
+        }
+        else if (M == b)
+        {
+            hsv.h = 240 + 60 * (r - g) / C;
+        }
+    }
+    else
+    {
+        hsv.h = 0.0;
+    }
+
+    if (hsv.h < 0.0)
+    {
+        hsv.h += 360;
+    }
+
+    return hsv;
+}
+
+bool is_red_pixel(float h, float s, float v)
+{
+    return (h < RED_HUE_MIN || h > RED_HUE_MAX) && s * 255 > RED_SATURATION_MIN && v * 255 > RED_VALUE_MIN;
+}
+
+Mat create_mask(Mat source)
+{
+    Mat mask = Mat::zeros(source.size(), CV_8UC1);
+
+    for (int i = 0; i < source.rows; i++)
+    {
+        for (int j = 0; j < source.cols; j++)
         {
             Vec3b pixel = source.at<Vec3b>(i, j);
-            B.at<uchar>(i, j) = pixel[0];
-            G.at<uchar>(i, j) = pixel[1];
-            R.at<uchar>(i, j) = pixel[2];
-        }
-    }
+            float r = pixel[2] / 255.0f;
+            float g = pixel[1] / 255.0f;
+            float b = pixel[0] / 255.0f;
 
-    bgr_channels.B = B;
-    bgr_channels.G = G;
-    bgr_channels.R = R;
+            HSV hsv = rgb_to_hsv_pixel(r, g, b);
 
-    return bgr_channels;
-}
-
-image_channels_hsv bgr_to_hsv(image_channels_bgr bgr_channels)
-{
-    int rows = bgr_channels.B.rows;
-    int cols = bgr_channels.B.cols;
-    Mat H = Mat::zeros(rows, cols, CV_32FC1);
-    Mat S = Mat::zeros(rows, cols, CV_32FC1);
-    Mat V = Mat::zeros(rows, cols, CV_32FC1);
-    image_channels_hsv hsv_channels;
-
-    float M, m, C;
-
-    for (int i = 0; i < rows; i++)
-    {
-        for (int j = 0; j < cols; j++)
-        {
-            float r = (float)bgr_channels.R.at<uchar>(i, j) / 255;
-            float g = (float)bgr_channels.G.at<uchar>(i, j) / 255;
-            float b = (float)bgr_channels.B.at<uchar>(i, j) / 255;
-
-            M = max(r, max(g, b));
-            m = min(r, min(g, b));
-            C = M - m;
-
-            V.at<float>(i, j) = M;
-            if (M != 0.0)
-            {
-                S.at<float>(i, j) = C / M;
-            }
-            else
-            {
-                S.at<float>(i, j) = 0.0;
-            }
-
-            if (C != 0.0)
-            {
-                if (M == r)
-                {
-                    H.at<float>(i, j) = 60 * (g - b) / C;
-                }
-                if (M == g)
-                {
-                    H.at<float>(i, j) = 120 + 60 * (b - r) / C;
-                }
-                if (M == b)
-                {
-                    H.at<float>(i, j) = 240 + 60 * (r - g) / C;
-                }
-            }
-            else
-            {
-                H.at<float>(i, j) = 0.0;
-            }
-            if (H.at<float>(i, j) < 0.0)
-            {
-                H.at<float>(i, j) += 360;
-            }
-        }
-    }
-
-    hsv_channels.H = H;
-    hsv_channels.S = S;
-    hsv_channels.V = V;
-
-    return hsv_channels;
-}
-
-Mat create_mask(image_channels_hsv hsv_channels)
-{
-    Mat mask = Mat::zeros(hsv_channels.H.size(), CV_8UC1);
-
-    for (int i = 0; i < hsv_channels.H.rows; i++)
-    {
-        for (int j = 0; j < hsv_channels.H.cols; j++)
-        {
-            float hue = hsv_channels.H.at<float>(i, j);
-            float sat = hsv_channels.S.at<float>(i, j) * 255;
-            float val = hsv_channels.V.at<float>(i, j) * 255;
-
-            if ((hue < 10 || hue > 200) && sat > 100 && val > 50)
+            if (is_red_pixel(hsv.h, hsv.s, hsv.v))
             {
                 mask.at<uchar>(i, j) = 255;
             }
         }
     }
-    mask = erode(mask, 1);
-    mask = dilate(mask, 1);
+    mask = erode(mask, 2);
+    mask = dilate(mask, 2);
     return mask;
 }
 
-Mat correct_red_eye(Mat mask, Mat source)
+Mat dilate(Mat source, int no_iter)
 {
-    int rows = mask.rows;
-    int cols = mask.cols;
-    Mat corrected = source.clone();
+    Mat dst = source.clone();
+    Mat aux;
 
-    for (int i = 0; i < rows; i++)
+    int rows = source.rows;
+    int cols = source.cols;
+
+    for (int iter = 0; iter < no_iter; iter++)
     {
-        for (int j = 0; j < cols; j++)
+        aux = dst.clone();
+        for (int i = 0; i < rows; i++)
         {
-            if (mask.at<uchar>(i, j) == 255)
+            for (int j = 0; j < cols; j++)
             {
-                Vec3b &pixel = corrected.at<Vec3b>(i, j);
-                uchar green = pixel[1];
-                uchar blue = pixel[0];
+                if (dst.at<uchar>(i, j) == 255)
+                {
+                    for (int k = 0; k < 8; k++)
+                    {
+                        int ni = i + dx[k];
+                        int nj = j + dy[k];
 
-                pixel[2] = min(green, blue);
+                        if (is_inside(ni, nj, rows, cols))
+                        {
+                            aux.at<uchar>(ni, nj) = 255;
+                        }
+                    }
+                }
             }
         }
+        dst = aux.clone();
     }
 
-    return corrected;
+    return dst;
+}
+
+Mat erode(Mat source, int no_iter)
+{
+    Mat dst = source.clone();
+    Mat aux;
+
+    int rows = source.rows;
+    int cols = source.cols;
+
+    for (int iter = 0; iter < no_iter; iter++)
+    {
+        aux = dst.clone();
+        for (int i = 0; i < rows; i++)
+        {
+            for (int j = 0; j < cols; j++)
+            {
+                if (dst.at<uchar>(i, j) == 255)
+                {
+                    for (int k = 0; k < 8; k++)
+                    {
+                        int ni = i + dx[k];
+                        int nj = j + dy[k];
+
+                        if (!is_inside(ni, nj, rows, cols) || dst.at<uchar>(ni, nj) == 0)
+                        {
+                            aux.at<uchar>(i, j) = 0;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        dst = aux.clone();
+    }
+    return dst;
+}
+
+bool is_white_pixel(Vec3b pixel)
+{
+    bool isWhite = pixel[0] > WHITE_THRESHOLD &&
+                   pixel[1] > WHITE_THRESHOLD &&
+                   pixel[2] > WHITE_THRESHOLD;
+
+    bool isOffWhite = pixel[0] > OFF_WHITE_THRESHOLD &&
+                      pixel[1] > OFF_WHITE_THRESHOLD &&
+                      pixel[2] > OFF_WHITE_THRESHOLD &&
+                      abs(pixel[0] - pixel[1]) < COLOR_DIFF_THRESHOLD &&
+                      abs(pixel[1] - pixel[2]) < COLOR_DIFF_THRESHOLD &&
+                      abs(pixel[0] - pixel[2]) < COLOR_DIFF_THRESHOLD;
+
+    return isWhite || isOffWhite;
+}
+
+bool is_dark_pixel(Vec3b pixel)
+{
+    return pixel[0] < DARK_THRESHOLD || pixel[1] < DARK_THRESHOLD || pixel[2] < DARK_THRESHOLD;
+}
+
+bool is_skin_tone(Vec3b pixel)
+{
+    float r = pixel[2] / 255.0f;
+    float g = pixel[1] / 255.0f;
+    float b = pixel[0] / 255.0f;
+
+    bool redDominant = r > g && r > b;
+
+    bool inRange = r > SKIN_RED_MIN && r < SKIN_RED_MAX &&
+                   g > SKIN_GREEN_MIN && g < SKIN_GREEN_MAX &&
+                   b > SKIN_BLUE_MIN && b < SKIN_BLUE_MAX;
+
+    float maxVal = max(max(r, g), b);
+    float minVal = min(min(r, g), b);
+    float saturation = (maxVal - minVal) / maxVal;
+    bool notTooSaturated = saturation < SKIN_SATURATION_MAX;
+
+    return redDominant && inRange && notTooSaturated;
 }
 
 labels_ two_pass_labeling(Mat source)
@@ -251,79 +317,6 @@ labels_ two_pass_labeling(Mat source)
     return {labels, new_label};
 }
 
-Mat dilate(Mat source, int no_iter)
-{
-    Mat dst = source.clone();
-    Mat aux;
-
-    int rows = source.rows;
-    int cols = source.cols;
-
-    for (int iter = 0; iter < no_iter; iter++)
-    {
-        aux = dst.clone();
-        for (int i = 0; i < rows; i++)
-        {
-            for (int j = 0; j < cols; j++)
-            {
-                if (dst.at<uchar>(i, j) == 255)
-                {
-                    for (int k = 0; k < 8; k++)
-                    {
-                        int ni = i + dx[k];
-                        int nj = j + dy[k];
-
-                        if (is_inside(ni, nj, rows, cols))
-                        {
-                            aux.at<uchar>(ni, nj) = 255;
-                        }
-                    }
-                }
-            }
-        }
-        dst = aux.clone();
-    }
-
-    return dst;
-}
-
-Mat erode(Mat source, int no_iter)
-{
-    Mat dst = source.clone();
-    Mat aux;
-
-    int rows = source.rows;
-    int cols = source.cols;
-
-    for (int iter = 0; iter < no_iter; iter++)
-    {
-        aux = dst.clone();
-        for (int i = 0; i < rows; i++)
-        {
-            for (int j = 0; j < cols; j++)
-            {
-                if (dst.at<uchar>(i, j) == 255)
-                {
-                    for (int k = 0; k < 8; k++)
-                    {
-                        int ni = i + dx[k];
-                        int nj = j + dy[k];
-
-                        if (!is_inside(ni, nj, rows, cols) || dst.at<uchar>(ni, nj) == 0)
-                        {
-                            aux.at<uchar>(i, j) = 0;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        dst = aux.clone();
-    }
-    return dst;
-}
-
 bool is_edge_pixel(const Mat &labelMat, int x, int y)
 {
     int rows = labelMat.rows;
@@ -342,7 +335,72 @@ bool is_edge_pixel(const Mat &labelMat, int x, int y)
     return false;
 }
 
-Mat detect_circular_components(Mat binary, double circularityThreshold)
+bool check_surroundings(Mat original, int redX, int redY, int redWidth, int redHeight)
+{
+    int whiteCount = 0;
+    int skinCount = 0;
+    int darkCount = 0;
+    int totalCount = 0;
+    int margin = 2;
+
+    int checkedAreaWidth = redWidth * 2;
+    int checkedAreaHeight = redHeight * 2;
+    int checkX = redX - checkedAreaWidth / 2;
+    int checkY = redY - checkedAreaHeight / 2;
+
+    for (int i = checkY; i < checkY + checkedAreaHeight; i++)
+    {
+        for (int j = checkX; j < checkX + checkedAreaWidth; j++)
+        {
+            if (i >= 0 && i < original.rows && j >= 0 && j < original.cols)
+            {
+                if (i >= redY - redHeight / 2 - margin && i < redY + redHeight / 2 + margin &&
+                    j >= redX - redWidth / 2 - margin && j < redX + redWidth / 2 + margin)
+                {
+                    continue;
+                }
+
+                Vec3b pixel = original.at<Vec3b>(i, j);
+                if (is_white_pixel(pixel))
+                {
+                    whiteCount++;
+                }
+                else if (is_skin_tone(pixel))
+                {
+                    skinCount++;
+                }
+                else if (is_dark_pixel(pixel))
+                {
+                    darkCount++;
+                }
+                totalCount++;
+            }
+        }
+    }
+
+    double whiteRatio = calculate_ratio(whiteCount, totalCount);
+    double skinRatio = calculate_ratio(skinCount, totalCount);
+    double darkRatio = calculate_ratio(darkCount, totalCount);
+
+    return totalCount > 0 &&
+           whiteRatio > 0.01 &&
+           skinRatio < 0.5 &&
+           darkRatio > 0.001;
+}
+
+bool is_label_validated(int label, const vector<int> &validatedLabels)
+{
+    for (int validatedLabel : validatedLabels)
+    {
+        if (label == validatedLabel)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+Mat detect_circular_components(Mat binary, Mat original, double circularityThreshold)
 {
     labels_ labels = two_pass_labeling(binary);
 
@@ -365,22 +423,82 @@ Mat detect_circular_components(Mat binary, double circularityThreshold)
         }
     }
 
+    vector<int> validatedLabels;
+
+    for (int lbl = 1; lbl <= labels.no_newlabels; lbl++)
+    {
+        if (perimeter[lbl] > 0)
+        {
+            double thinness_ratio = (4.0 * PI * area[lbl]) / (perimeter[lbl] * perimeter[lbl]);
+
+            if (thinness_ratio >= circularityThreshold)
+            {
+                int minX = labels.labels.cols, minY = labels.labels.rows;
+                int maxX = 0, maxY = 0;
+
+                for (int i = 0; i < labels.labels.rows; i++)
+                {
+                    for (int j = 0; j < labels.labels.cols; j++)
+                    {
+                        if (labels.labels.at<int>(i, j) == lbl)
+                        {
+                            minX = min(minX, j);
+                            minY = min(minY, i);
+                            maxX = max(maxX, j);
+                            maxY = max(maxY, i);
+                        }
+                    }
+                }
+
+                int centerX = (minX + maxX) / 2;
+                int centerY = (minY + maxY) / 2;
+                int width = maxX - minX;
+                int height = maxY - minY;
+
+                if (check_surroundings(original, centerX, centerY, width, height))
+                {
+                    validatedLabels.push_back(lbl);
+                }
+            }
+        }
+    }
+
     Mat output = Mat::zeros(labels.labels.size(), CV_8UC1);
     for (int i = 0; i < labels.labels.rows; i++)
     {
         for (int j = 0; j < labels.labels.cols; j++)
         {
             int lbl = labels.labels.at<int>(i, j);
-            if (lbl > 0 && perimeter[lbl] > 0)
+            if (lbl > 0 && is_label_validated(lbl, validatedLabels))
             {
-                double circ = (4.0 * PI * area[lbl]) / (perimeter[lbl] * perimeter[lbl]);
-                if (circ >= circularityThreshold && area[lbl] > 50)
-                {
-                    output.at<uchar>(i, j) = 255;
-                }
+                output.at<uchar>(i, j) = 255;
             }
         }
     }
 
     return output;
+}
+
+Mat correct_red_eye(Mat mask, Mat source)
+{
+    int rows = mask.rows;
+    int cols = mask.cols;
+    Mat corrected = source.clone();
+
+    for (int i = 0; i < rows; i++)
+    {
+        for (int j = 0; j < cols; j++)
+        {
+            if (mask.at<uchar>(i, j) == 255)
+            {
+                Vec3b &pixel = corrected.at<Vec3b>(i, j);
+                uchar green = pixel[1];
+                uchar blue = pixel[0];
+
+                pixel[2] = min(green, blue);
+            }
+        }
+    }
+
+    return corrected;
 }
