@@ -388,6 +388,18 @@ bool check_surroundings(Mat original, int redX, int redY, int redWidth, int redH
            darkRatio > 0.001;
 }
 
+bool is_label_validated(int label, const vector<int> &validatedLabels)
+{
+    for (int validatedLabel : validatedLabels)
+    {
+        if (label == validatedLabel)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 Mat detect_circular_components(Mat binary, Mat original, double circularityThreshold)
 {
     labels_ labels = two_pass_labeling(binary);
@@ -452,21 +464,18 @@ Mat detect_circular_components(Mat binary, Mat original, double circularityThres
     }
 
     Mat output = Mat::zeros(labels.labels.size(), CV_8UC1);
-    Mat image_with_boxes = original.clone();
-
     for (int i = 0; i < labels.labels.rows; i++)
     {
         for (int j = 0; j < labels.labels.cols; j++)
         {
             int lbl = labels.labels.at<int>(i, j);
-            if (lbl > 0 && find(validatedLabels.begin(), validatedLabels.end(), lbl) != validatedLabels.end())
+            if (lbl > 0 && is_label_validated(lbl, validatedLabels))
             {
                 output.at<uchar>(i, j) = 255;
             }
         }
     }
 
-    imshow("Detected eyes", image_with_boxes);
     return output;
 }
 
