@@ -1,25 +1,25 @@
 #include <opencv2/opencv.hpp>
 #include "implementation/eye_detection.h"
+
 using namespace std;
 using namespace cv;
 
 int main()
 {
-    Mat image = imread("E:\\AN3\\SEM2\\pi\\red_eye\\images\\redeyes1.jpg",
+    Mat image = imread("E:\\AN3\\SEM2\\pi\\red_eye\\images\\red1.jpg",
                        IMREAD_COLOR);
 
-    image_channels_bgr channelsBgr = break_channels(image);
-    image_channels_hsv channelsHsv = bgr_to_hsv(channelsBgr);
+    cout << "Image size rows= " << image.rows << " cols= " << image.cols << endl;
 
-    Mat redMask = create_mask(channelsHsv);
+    Mat redMask = create_mask(image);
 
     imshow("Original Image", image);
     imshow("Red Mask", redMask);
 
-    Mat extracted = detect_circular_components(redMask, 0.6);
-    imshow("Circular", extracted);
+    Mat circularMask = detect_circular_components(redMask, image, 0.6);
+    imshow("Circular", circularMask);
 
-    Mat corrected = correct_red_eye(extracted, image);
+    Mat corrected = correct_red_eye(circularMask, image);
     imshow("Corrected", corrected);
     waitKey(0);
     return 0;
