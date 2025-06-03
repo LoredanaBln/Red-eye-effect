@@ -8,7 +8,6 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 
 add_executable(red_eye main.cpp
         implementation/eye_detection.cpp
-        implementation/eye_detection.h
-        implementation/eye_detection.cpp)
+        implementation/eye_detection.h)
 
 target_link_libraries(red_eye ${OpenCV_LIBS})

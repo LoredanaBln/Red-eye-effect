@@ -6,10 +6,8 @@ using namespace cv;
 
 int main()
 {
-    Mat image = imread("E:\\AN3\\SEM2\\pi\\red_eye\\images\\red1.jpg",
+    Mat image = imread("E:\\AN3\\SEM2\\pi\\red_eye\\images\\red8.jpg",
                        IMREAD_COLOR);
-
-    cout << "Image size rows= " << image.rows << " cols= " << image.cols << endl;
 
     Mat redMask = create_mask(image);
 

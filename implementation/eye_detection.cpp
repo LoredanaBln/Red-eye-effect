@@ -3,8 +3,6 @@
 using namespace std;
 using namespace cv;
 
-#define PI 3.14
-
 #define WHITE_THRESHOLD 140
 #define OFF_WHITE_THRESHOLD 120
 #define COLOR_DIFF_THRESHOLD 30
@@ -22,6 +20,10 @@ using namespace cv;
 #define RED_HUE_MAX 200
 #define RED_SATURATION_MIN 100
 #define RED_VALUE_MIN 50
+
+
+const float MIN_ASPECT_RATIO = 0.8f;
+const float MAX_ASPECT_RATIO = 1.2f;
 
 bool is_inside(int x, int y, int rows, int cols)
 {
@@ -317,24 +319,6 @@ labels_ two_pass_labeling(Mat source)
     return {labels, new_label};
 }
 
-bool is_edge_pixel(const Mat &labelMat, int x, int y)
-{
-    int rows = labelMat.rows;
-    int cols = labelMat.cols;
-    int label = labelMat.at<int>(x, y);
-
-    for (int k = 0; k < 4; k++)
-    {
-        int nx = x + dx[k];
-        int ny = y + dy[k];
-        if (!is_inside(nx, ny, rows, cols) || labelMat.at<int>(nx, ny) != label)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool check_surroundings(Mat original, int redX, int redY, int redWidth, int redHeight)
 {
     int whiteCount = 0;
@@ -400,66 +384,344 @@ bool is_label_validated(int label, const vector<int> &validatedLabels)
     return false;
 }
 
-Mat detect_circular_components(Mat binary, Mat original, double circularityThreshold)
+int *compute_histogram_naive(Mat source)
 {
-    labels_ labels = two_pass_labeling(binary);
+    int *histogram = (int *) calloc(256, sizeof(int));
 
-    vector<int> area(labels.no_newlabels + 1, 0);
-    vector<int> perimeter(labels.no_newlabels + 1, 0);
+    for (int i = 1; i < source.rows - 1; i++) {
+        for (int j = 1; j < source.cols - 1; j++) {
+            histogram[source.at<uchar>(i, j)]++;
+        }
+    }
 
-    for (int i = 0; i < labels.labels.rows; i++)
-    {
-        for (int j = 0; j < labels.labels.cols; j++)
-        {
-            int lbl = labels.labels.at<int>(i, j);
-            if (lbl > 0)
-            {
-                area[lbl]++;
-                if (is_edge_pixel(labels.labels, i, j))
-                {
-                    perimeter[lbl]++;
+    return histogram;
+}
+
+vector<float> compute_kernel_1D(int kernel_size)
+{
+    vector<float> kernel(kernel_size);
+    float std = (float) kernel_size / 6.0;
+    int ks2 = kernel_size / 2;
+    for (int i = 0; i < kernel_size; i++) {
+        float exponent = (-pow((i - ks2), 2)) / (2 * pow(std, 2));
+        kernel[i] = exp(exponent) / (sqrt(2 * CV_PI) * std);
+    }
+    return kernel;
+}
+
+Mat apply_gaussian_filtering_1D(Mat source, int kernel_size)
+{
+    Mat result = source.clone();
+    Mat temp = source.clone();
+    vector<float> kernel = compute_kernel_1D(kernel_size);
+    int ks2 = kernel_size / 2;
+
+    for (int i = ks2; i < source.rows - ks2; i++) {
+        for (int j = 0; j < source.cols; j++) {
+            float sum_y = 0.0;
+            float sum_y_g = 0.0;
+            for (int k = -ks2; k <= ks2; k++) {
+                float weight = kernel[k + ks2];
+                sum_y += (float) source.at<uchar>(i + k, j) * weight;
+                sum_y_g += weight;
+            }
+            temp.at<uchar>(i, j) = (uchar) (sum_y / sum_y_g);
+        }
+    }
+
+    for (int i = 0; i < source.rows; i++) {
+        for (int j = ks2; j < source.cols - ks2; j++) {
+            float sum_x = 0.0;
+            float sum_x_g = 0.0;
+            for (int k = -ks2; k <= ks2; k++) {
+                float weight = kernel[k + ks2];
+                sum_x += (float) temp.at<uchar>(i, j + k) * weight;
+                sum_x_g += weight;
+            }
+            result.at<uchar>(i, j) = (uchar) (sum_x / sum_x_g);
+        }
+    }
+
+    return result;
+}
+
+gradients_structure
+compute_gradients(Mat source, const int *filter_x, const int *filter_y, const int *di, const int *dj)
+{
+    gradients_structure gradients;
+    int rows = source.rows;
+    int cols = source.cols;
+
+    Mat filtered_image = apply_gaussian_filtering_1D(source, 3);
+    Mat result_x = Mat::zeros(rows, cols, CV_32SC1);
+    Mat result_y = Mat::zeros(rows, cols, CV_32SC1);
+    Mat magnitude = Mat::zeros(rows, cols, CV_32FC1);
+    Mat direction = Mat::zeros(rows, cols, CV_32FC1);
+
+    for (int i = 1; i < rows - 1; i++) {
+        for (int j = 1; j < cols - 1; j++) {
+            int sum_x = 0;
+            int sum_y = 0;
+            for (int k = 0; k < 8; k++) {
+                sum_x += (int) filtered_image.at<uchar>(i + di[k], j + dj[k]) * filter_x[k];
+                sum_y += (int) filtered_image.at<uchar>(i + di[k], j + dj[k]) * filter_y[k];
+            }
+            result_x.at<int>(i, j) = sum_x;
+            result_y.at<int>(i, j) = sum_y;
+            magnitude.at<float>(i, j) = (float) sqrt(sum_x * sum_x + sum_y * sum_y);
+            direction.at<float>(i, j) = atan2((float) sum_y, (float) sum_x);
+        }
+    }
+
+    gradients.x = result_x;
+    gradients.y = result_y;
+    gradients.magnitude = magnitude;
+    gradients.direction = direction;
+
+    return gradients;
+}
+
+int getArea(float direction)
+{
+    int dir = 0;
+    double direction_deg = direction * 180 / CV_PI;
+    if (direction_deg < 0) {
+        direction_deg += 180.0;
+    }
+
+    if ((direction_deg >= 0 && direction_deg < 22.5) || (direction_deg >= 157.5 && direction_deg < 180)) {
+        dir = 0;
+    } else if (direction_deg >= 22.5 && direction_deg < 67.5) {
+        dir = 1;
+    } else if (direction_deg >= 67.5 && direction_deg < 112.5) {
+        dir = 2;
+    } else {
+        dir = 3;
+    }
+    return dir;
+}
+
+Mat non_maxima_gradient_suppression(gradients_structure gradient)
+{
+    Mat magnitude = gradient.magnitude;
+    Mat direction = gradient.direction;
+    int rows = gradient.magnitude.rows;
+    int cols = gradient.magnitude.cols;
+
+    Mat result = Mat::zeros(rows, cols, CV_32FC1);
+
+    for (int i = 1; i < rows - 1; i++) {
+        for (int j = 1; j < cols - 1; j++) {
+            int dir = getArea(direction.at<float>(i, j));
+            float current_mag = magnitude.at<float>(i, j);
+
+            if (dir == 0 && current_mag >= magnitude.at<float>(i, j - 1) &&
+                current_mag >= magnitude.at<float>(i, j + 1) ||
+                dir == 1 && current_mag >= magnitude.at<float>(i + 1, j - 1) &&
+                current_mag >= magnitude.at<float>(i - 1, j + 1) ||
+                dir == 2 && current_mag >= magnitude.at<float>(i - 1, j) &&
+                current_mag >= magnitude.at<float>(i + 1, j) ||
+                dir == 3 && current_mag >= magnitude.at<float>(i - 1, j - 1) &&
+                current_mag >= magnitude.at<float>(i + 1, j + 1)) {
+                result.at<float>(i, j) = current_mag;
+            }
+        }
+    }
+
+    return result;
+}
+
+filter_structure get_filter(string filter_type)
+{
+    filter_structure filter;
+    int sobelx[8] = {2, 1, 0, -1, -2, -1, 0, 1};
+    int sobely[8] = {0, 1, 2, 1, 0, -1, -2, -1};
+
+    filter.filter_x = new int[8];
+    filter.filter_y = new int[8];
+    filter.di = new int[8];
+    filter.dj = new int[8];
+
+    if (filter_type == "sobel") {
+        memcpy(filter.filter_x, sobelx, 8 * sizeof(int));
+        memcpy(filter.filter_y, sobely, 8 * sizeof(int));
+    }
+    memcpy(filter.di, dx, 8 * sizeof(int));
+    memcpy(filter.dj, dy, 8 * sizeof(int));
+
+    return filter;
+}
+
+Mat normalize_supression(Mat supression, string filter_type)
+{
+    int rows = supression.rows;
+    int cols = supression.cols;
+    Mat result = Mat::zeros(rows, cols, CV_8UC1);
+
+    for (int i = 1; i < rows - 1; i++) {
+        for (int j = 1; j < cols - 1; j++) {
+            if (filter_type == "sobel") {
+                result.at<uchar>(i, j) = (uchar) (supression.at<float>(i, j) / (4.0f * sqrt(2.0f)));
+            }
+        }
+    }
+
+    return result;
+}
+
+int adaptive_threshold(Mat magnitude, float p, bool verbose)
+{
+    int th;
+    int rows = magnitude.rows;
+    int cols = magnitude.cols;
+
+    int *histogram = compute_histogram_naive(magnitude);
+    int no_edge_pixels = (int) (p * (float) ((rows - 2) * (cols - 2) - histogram[0]));
+    int sum = 0;
+    int index = 255;
+    while (sum < no_edge_pixels) {
+        th = index;
+        sum += histogram[index--];
+    }
+
+    return th;
+}
+
+Mat histeresis_thresholding(Mat source, int th)
+{
+    int rows = source.rows;
+    int cols = source.cols;
+    Mat result = Mat::zeros(rows, cols, CV_8UC1);
+
+    int t_low = (int) (th * 0.4);
+
+    for (int i = 1; i < rows - 1; i++) {
+        for (int j = 1; j < cols - 1; j++) {
+            if (source.at<uchar>(i, j) >= t_low && source.at<uchar>(i, j) < th) {
+                result.at<uchar>(i, j) = 127;
+            } else if (source.at<uchar>(i, j) >= th) {
+                result.at<uchar>(i, j) = 255;
+            }
+        }
+    }
+
+    return result;
+}
+
+Mat histeresis(Mat source)
+{
+    int rows = source.rows;
+    int cols = source.cols;
+    Mat result = source.clone();
+
+    queue<Point> queue;
+
+    for (int i = 1; i < rows - 1; i++) {
+        for (int j = 1; j < cols - 1; j++) {
+            if (result.at<uchar>(i, j) == 255) {
+                queue.push(Point(j, i));
+
+                while (!queue.empty()) {
+                    Point point = queue.front();
+                    queue.pop();
+
+                    for (int k = 0; k < 8; k++) {
+                        int ni = point.y + dx[k];
+                        int nj = point.x + dy[k];
+
+                        if (result.at<uchar>(ni, nj) == 127) {
+                            result.at<uchar>(ni, nj) = 255;
+                            queue.push(Point(nj, ni));
+                        }
+                    }
                 }
             }
         }
     }
 
+    for (int i = 1; i < rows - 1; i++) {
+        for (int j = 1; j < cols - 1; j++) {
+            if (result.at<uchar>(i, j) == 127) {
+                result.at<uchar>(i, j) = 0;
+            }
+        }
+    }
+
+    return result;
+}
+
+Mat apply_Canny(Mat source, int low_threshold, int high_threshold, string filter_type, bool verbose)
+{
+    Mat result;
+    Mat gauss = source.clone();
+
+    gauss = apply_gaussian_filtering_1D(gauss, 3);
+
+    filter_structure filter = get_filter(filter_type);
+    gradients_structure gradient = compute_gradients(gauss, filter.filter_x, filter.filter_y, filter.di, filter.dj);
+
+    Mat non_maxima = non_maxima_gradient_suppression(gradient);
+    non_maxima = normalize_supression(non_maxima, filter_type);
+
+    int th = adaptive_threshold(non_maxima, 0.1, verbose);
+
+    Mat hist = histeresis_thresholding(non_maxima, th);
+
+    result = histeresis(hist);
+
+    return result;
+}
+
+Mat detect_circular_components(Mat binary, Mat original, double circularityThreshold) {
+    labels_ labels = two_pass_labeling(binary);
     vector<int> validatedLabels;
 
-    for (int lbl = 1; lbl <= labels.no_newlabels; lbl++)
-    {
-        if (perimeter[lbl] > 0)
-        {
-            double thinness_ratio = (4.0 * PI * area[lbl]) / (perimeter[lbl] * perimeter[lbl]);
+    for (int lbl = 1; lbl <= labels.no_newlabels; lbl++) {
+        Mat labelMask = Mat::zeros(binary.size(), CV_8UC1);
+        int pixelCount = 0;
+        int minX = labels.labels.cols, minY = labels.labels.rows;
+        int maxX = 0, maxY = 0;
 
-            if (thinness_ratio >= circularityThreshold)
-            {
-                int minX = labels.labels.cols, minY = labels.labels.rows;
-                int maxX = 0, maxY = 0;
-
-                for (int i = 0; i < labels.labels.rows; i++)
-                {
-                    for (int j = 0; j < labels.labels.cols; j++)
-                    {
-                        if (labels.labels.at<int>(i, j) == lbl)
-                        {
-                            minX = min(minX, j);
-                            minY = min(minY, i);
-                            maxX = max(maxX, j);
-                            maxY = max(maxY, i);
-                        }
-                    }
-                }
-
-                int centerX = (minX + maxX) / 2;
-                int centerY = (minY + maxY) / 2;
-                int width = maxX - minX;
-                int height = maxY - minY;
-
-                if (check_surroundings(original, centerX, centerY, width, height))
-                {
-                    validatedLabels.push_back(lbl);
+        for (int i = 0; i < labels.labels.rows; i++) {
+            for (int j = 0; j < labels.labels.cols; j++) {
+                if (labels.labels.at<int>(i, j) == lbl) {
+                    labelMask.at<uchar>(i, j) = 255;
+                    pixelCount++;
+                    minX = min(minX, j);
+                    minY = min(minY, i);
+                    maxX = max(maxX, j);
+                    maxY = max(maxY, i);
                 }
             }
+        }
+
+        int width = maxX - minX;
+        int height = maxY - minY;
+        float aspectRatio = (float) width / height;
+
+        Mat edges = apply_Canny(labelMask, 50, 15, "sobel", false);
+        int perimeter = 0;
+        for (int i = 0; i < edges.rows; i++) {
+            for (int j = 0; j < edges.cols; j++) {
+                if (edges.at<uchar>(i, j) > 0) {
+                    perimeter++;
+                }
+            }
+        }
+
+        float circularity = (4.0f * CV_PI * pixelCount) / (perimeter * perimeter);
+
+        if (aspectRatio < MIN_ASPECT_RATIO || aspectRatio > MAX_ASPECT_RATIO) {
+            continue;
+        }
+
+        int centerX = (minX + maxX) / 2;
+        int centerY = (minY + maxY) / 2;
+
+        bool surroundingsValid = check_surroundings(original, centerX, centerY, width, height);
+
+        if (surroundingsValid) {
+            validatedLabels.push_back(lbl);
         }
     }
 
